@@ -1,0 +1,160 @@
+{
+  This script will play all notes within the configured range
+  of groups, keys and velocities. It is then able to get the
+  zone IDs and the zone lengths. The data is stored in an 
+  array and in the end written to disc to the configured
+  location.
+
+  This script is based on a post from the interwebs:
+  https://vi-control.net/community/threads/ksp-get-sample-length.83602/#post-4408900
+  Kudos to this guy!
+}
+
+on init
+
+  set_script_title("save-zone-lengths-with-velocity")
+
+
+
+  {
+    ============================
+    Configurational declarations
+    ============================
+  }
+
+
+
+  {
+    Configure the range of notes to play.
+
+    Example: 
+      $GROUPS=2, $KEYS=3, $GROUP_OFFSET=10, $KEY_OFFSET=33
+      will play notes for 
+      keys 33, 34, 35 in groups 10 and 11
+  }
+  declare const $GROUPS := 4            { Number of successive groups }
+  declare const $KEYS := 2              { Number of successive keys }
+  
+  declare const $GROUP_OFFSET := 12     { Group number to start with }
+  declare const $KEY_OFFSET := 0        { Key number to start with }
+
+  {
+    Configure the velocities for each note.
+    The velocity will be increased by the step size
+    and will stop after the number of steps.
+    NOTE: The product of the two constants and adding the offset
+          must not exceed 127!
+
+    Example:
+      $VELOCITY_STEPS=5, $VELOCITY_STEP_SIZE=15, $VELOCITY_OFFSET=10
+      will play every note for 
+      velocity levels 25, 40, 55, 70, 85
+  }
+  declare const $VELOCITY_STEPS := 127     { Number of steps to play the note }
+  declare const $VELOCITY_STEP_SIZE := 1   { The size of each step in velocity }
+  declare const $VELOCITY_OFFSET := 0      { The velocity level to start from, is EXCLUDING the first step!}
+
+  
+
+  { 
+    Set save_array mode 
+    0 = prompt file location, 
+    1 = Data folder
+  }
+  declare $saveArrayMode
+  $saveArrayMode := 1
+
+  
+
+
+  {
+    =====================
+    Internal declarations
+    =====================
+  }
+
+  { The arrays to save }
+  declare $arraySize := get_array_size()
+  declare %ZONE_IDS[$arraySize]
+  declare %ZONE_LENGTHS[$arraySize]
+  
+
+  declare $blip_id
+  declare $group_index
+  declare $key_index
+  declare $velocity_index
+
+  declare $groupId
+  declare $noteId { a key turns into a note }
+  declare $velocity
+  declare $arrayKey
+
+  declare ui_button $SaveZoneLengths
+  set_text($SaveZoneLengths, "SaveZoneLengths")
+end on
+
+on ui_control($SaveZoneLengths)
+
+  $group_index := 0
+  while ($group_index < $GROUPS)
+
+    $key_index := 0
+    while ($key_index < $KEYS)
+
+      $velocity_index := 0
+      while($velocity_index < $VELOCITY_STEPS)
+        
+        $groupId := $group_index + $GROUP_OFFSET
+        $noteId := $key_index + $KEY_OFFSET
+        $velocity := get_velocity_from_index($velocity_index)
+
+        message("Blipping the *cough* out of group #" & $groupId & " note #" & $noteId & " key(" & ($key_index + 1) & "/" & $KEYS & ") velocity " & $velocity & " velstep(" & $velocity_index & "/" & $VELOCITY_STEPS & ")")
+
+        $blip_id := play_note($noteId, $velocity, 0, 1)
+        set_event_par_arr($ALL_EVENTS, $EVENT_PAR_ALLOW_GROUP, 0, $ALL_GROUPS)
+        set_event_par_arr($blip_id, $EVENT_PAR_ALLOW_GROUP, 1, $groupId)
+        wait(1)
+        
+        $arrayKey := get_calculated_array_key($group_index, $key_index, $velocity_index)
+        %ZONE_IDS[$arrayKey] := get_event_par($blip_id, $EVENT_PAR_ZONE_ID)
+        %ZONE_LENGTHS[$arrayKey] := get_sample_length(get_event_par($blip_id, $EVENT_PAR_ZONE_ID))
+        wait(100)
+
+        inc($velocity_index)
+      end while
+      
+      inc($key_index)
+    end while
+
+    inc($group_index)
+  end while
+
+  message("Saving %ZONE_IDS array")
+  save_array(%ZONE_IDS, $saveArrayMode)
+  message("Saving %ZONE_LENGTHS array")
+  save_array(%ZONE_LENGTHS, $saveArrayMode)
+
+  message("Done!")
+
+  $SaveZoneLengths := 0
+
+end on
+
+{ Calculates the size of the array, based on the configuration }
+function get_array_size() -> arraySize
+  arraySize := $GROUPS * $KEYS * $VELOCITY_STEPS
+end function
+
+{
+  Calculates the array key that corresponds with the given index
+  The key is a one dimensional representation of what actually is
+  a multi dimensional, with multiple indexes.
+}
+function get_calculated_array_key(group_index, key_index, velocity_index) -> arrayKey
+  arrayKey := (group_index * $KEYS * $VELOCITY_STEPS) + (key_index * $VELOCITY_STEPS) + velocity_index
+end function
+
+{ Calculates the resulting velocity, based on the configuration and the given index }
+function get_velocity_from_index(velocity_index) -> velocity
+  velocity := (velocity_index * $VELOCITY_STEP_SIZE) + $VELOCITY_OFFSET + 1
+end function
